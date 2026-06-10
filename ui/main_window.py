@@ -111,6 +111,14 @@ class MainWindow(QMainWindow):
         self.admin_web_btn.clicked.connect(self.show_admin_web_qr)
         header_layout.addWidget(self.admin_web_btn)
 
+        # Ngrok Setup button
+        self.ngrok_btn = QPushButton("🔗 Ngrok Setup")
+        self.ngrok_btn.setObjectName("SecondaryBtn")
+        self.ngrok_btn.setFixedWidth(110)
+        self.ngrok_btn.setFixedHeight(34)
+        self.ngrok_btn.clicked.connect(self.show_ngrok_settings)
+        header_layout.addWidget(self.ngrok_btn)
+
         # Theme Selector
         self.theme_btn = QPushButton("Light Mode")
         self.theme_btn.setObjectName("SecondaryBtn")
@@ -452,6 +460,160 @@ class MainWindow(QMainWindow):
             dlg.exec_()
         except Exception as e:
             QMessageBox.critical(self, "QR Generation Error", f"Failed to generate QR Code. Error: {str(e)}")
+
+    def show_ngrok_settings(self):
+        """Dialog to configure ngrok authtoken and static domain for permanent URLs."""
+        import configparser
+        import os
+
+        # Find app_config.ini
+        src_ini = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app_config.ini"))
+        try:
+            from config import EXECUTABLE_DIR
+            exe_ini = os.path.join(EXECUTABLE_DIR, "app_config.ini")
+        except Exception:
+            exe_ini = src_ini
+        ini_path = exe_ini if os.path.exists(exe_ini) else src_ini
+
+        config = configparser.ConfigParser()
+        config.read(ini_path, encoding='utf-8')
+        cur_token  = config.get("NGROK", "authtoken",    fallback="").strip()
+        cur_domain = config.get("NGROK", "static_domain", fallback="").strip()
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("🔗 Ngrok Permanent URL Setup")
+        dlg.setMinimumWidth(520)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+
+        # Instructions
+        info = QLabel(
+            "<b>Get a FREE permanent URL in 3 easy steps:</b><br>"
+            "1. Sign up free at <a href='https://ngrok.com' style='color:#00adb5'>ngrok.com</a><br>"
+            "2. Copy your <b>Authtoken</b> from the Dashboard &rarr; Your Authtoken<br>"
+            "3. Go to Cloud Edge &rarr; Domains &rarr; Create a free static domain<br>"
+            "Then paste both values below and click <b>Save &amp; Restart Tunnel</b>."
+        )
+        info.setOpenExternalLinks(True)
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #cccccc; font-size: 13px;")
+        layout.addWidget(info)
+
+        # Authtoken field
+        lbl_token = QLabel("Ngrok Authtoken:")
+        lbl_token.setStyleSheet("color: #ffffff; font-weight: bold;")
+        layout.addWidget(lbl_token)
+        inp_token = QLineEdit(cur_token)
+        inp_token.setPlaceholderText("e.g. 2abc123XYZ...")
+        inp_token.setStyleSheet("background:#1e1e2e; color:#fff; padding:8px; border-radius:6px; border:1px solid #444;")
+        inp_token.setMinimumHeight(36)
+        layout.addWidget(inp_token)
+
+        # Static domain field
+        lbl_domain = QLabel("Static Domain (optional but recommended):")
+        lbl_domain.setStyleSheet("color: #ffffff; font-weight: bold;")
+        layout.addWidget(lbl_domain)
+        inp_domain = QLineEdit(cur_domain)
+        inp_domain.setPlaceholderText("e.g. your-name.ngrok-free.app")
+        inp_domain.setStyleSheet("background:#1e1e2e; color:#fff; padding:8px; border-radius:6px; border:1px solid #444;")
+        inp_domain.setMinimumHeight(36)
+        layout.addWidget(inp_domain)
+
+        # Status label
+        status_lbl = QLabel("")
+        status_lbl.setWordWrap(True)
+        status_lbl.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+        layout.addWidget(status_lbl)
+
+        # Save button
+        save_btn = QPushButton("💾 Save & Restart Tunnel")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00adb5; color: #0a0a0f;
+                font-weight: bold; font-size: 14px;
+                border: none; border-radius: 8px; padding: 10px;
+            }
+            QPushButton:hover { background-color: #00c9d4; }
+        """)
+        layout.addWidget(save_btn)
+
+        def do_save():
+            token  = inp_token.text().strip()
+            domain = inp_domain.text().strip()
+            if not token:
+                status_lbl.setStyleSheet("color:#ff6b6b; font-size:13px;")
+                status_lbl.setText("❌ Authtoken cannot be empty. Paste your token from ngrok.com.")
+                return
+
+            # Write to config file
+            try:
+                if not config.has_section("NGROK"):
+                    config.add_section("NGROK")
+                config.set("NGROK", "authtoken", token)
+                config.set("NGROK", "static_domain", domain)
+                with open(ini_path, 'w', encoding='utf-8') as f:
+                    config.write(f)
+                # Also write to src ini if we wrote to exe ini
+                if ini_path != src_ini and os.path.exists(src_ini):
+                    src_cfg = configparser.ConfigParser()
+                    src_cfg.read(src_ini, encoding='utf-8')
+                    if not src_cfg.has_section("NGROK"):
+                        src_cfg.add_section("NGROK")
+                    src_cfg.set("NGROK", "authtoken", token)
+                    src_cfg.set("NGROK", "static_domain", domain)
+                    with open(src_ini, 'w', encoding='utf-8') as f:
+                        src_cfg.write(f)
+            except Exception as ex:
+                status_lbl.setStyleSheet("color:#ff6b6b; font-size:13px;")
+                status_lbl.setText(f"❌ Failed to save config: {ex}")
+                return
+
+            # Restart tunnel with new settings
+            status_lbl.setStyleSheet("color:#ffcc00; font-size:13px;")
+            status_lbl.setText("⏳ Restarting tunnel with ngrok... Please wait.")
+            save_btn.setEnabled(False)
+            QApplication.processEvents()
+
+            try:
+                # Kill old tunnel if SSH process
+                if self.kiosk_tunnel:
+                    try: self.kiosk_tunnel.terminate()
+                    except Exception: pass
+                    self.kiosk_tunnel = None
+
+                # Kill any running ngrok process from pyngrok
+                try:
+                    from pyngrok import ngrok as _ngrok
+                    _ngrok.kill()
+                except Exception:
+                    pass
+
+                from web.app import start_public_tunnel
+                tunnel_proc, new_url = start_public_tunnel(5000)
+
+                if new_url:
+                    self.kiosk_url = f"{new_url}/register" if "/register" not in new_url else new_url
+                    self.kiosk_tunnel = tunnel_proc
+                    status_lbl.setStyleSheet("color:#2ecc71; font-size:13px;")
+                    status_lbl.setText(
+                        f"✅ Tunnel connected!\n"
+                        f"Your permanent Kiosk URL: {self.kiosk_url}\n"
+                        f"This URL will be the same every time you start SmartVMS."
+                    )
+                else:
+                    status_lbl.setStyleSheet("color:#ff6b6b; font-size:13px;")
+                    status_lbl.setText(
+                        "❌ Tunnel failed to connect. Check your authtoken and internet connection."
+                    )
+            except Exception as ex:
+                status_lbl.setStyleSheet("color:#ff6b6b; font-size:13px;")
+                status_lbl.setText(f"❌ Error: {ex}")
+            finally:
+                save_btn.setEnabled(True)
+
+        save_btn.clicked.connect(do_save)
+        dlg.exec_()
 
     # ==========================================
     # CORE TAB WIDGETS CREATION (PHASE 1 SHELLS)

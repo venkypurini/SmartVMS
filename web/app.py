@@ -1098,32 +1098,82 @@ def get_local_ip():
         s.close()
     return IP
 
+def _read_ngrok_config():
+    """Read ngrok authtoken and static_domain from app_config.ini."""
+    try:
+        import configparser
+        config = configparser.ConfigParser()
+        # Try executable dir first, then source dir
+        from config import EXECUTABLE_DIR
+        ini_paths = [
+            os.path.join(EXECUTABLE_DIR, "app_config.ini"),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app_config.ini"))
+        ]
+        for p in ini_paths:
+            if os.path.exists(p):
+                config.read(p, encoding='utf-8')
+                break
+        authtoken = config.get("NGROK", "authtoken", fallback="").strip()
+        static_domain = config.get("NGROK", "static_domain", fallback="").strip()
+        return authtoken, static_domain
+    except Exception:
+        return "", ""
+
+
 def start_public_tunnel(port=5000):
-    """Starts an SSH reverse tunnel to serveo.net with fallback to localhost.run."""
+    """Starts a public tunnel. Uses ngrok (permanent) if configured, else SSH fallbacks."""
     try:
         import os
         from config import EXECUTABLE_DIR
         log_path = os.path.join(EXECUTABLE_DIR, "ssh_tunnel.log")
         err_path = os.path.join(EXECUTABLE_DIR, "tunnel_error.log")
-        
-        # Remove old error logs
+
         if os.path.exists(err_path):
             try: os.remove(err_path)
             except Exception: pass
-            
+
+        # ── 1. Try pyngrok (permanent static domain) ──────────────────────────
+        authtoken, static_domain = _read_ngrok_config()
+        if authtoken:
+            try:
+                from pyngrok import ngrok, conf
+                print("[Tunnel] Configuring ngrok with saved authtoken...")
+                conf.get_default().auth_token = authtoken
+                # Kill any stale tunnels from a previous session
+                try: ngrok.kill()
+                except Exception: pass
+
+                kwargs = {"addr": port, "proto": "http"}
+                if static_domain:
+                    kwargs["domain"] = static_domain
+                tunnel = ngrok.connect(**kwargs)
+                url = tunnel.public_url
+                # ngrok returns http:// even for https static domains — upgrade it
+                if url.startswith("http://"):
+                    url = "https://" + url[len("http://"):]
+                print(f"[Tunnel] ngrok connected (permanent): {url}")
+                with open(log_path, "a", encoding="utf-8") as lf:
+                    import datetime
+                    lf.write(f"\n--- ngrok Tunnel Started {datetime.datetime.now()} ---\n")
+                    lf.write(f"URL: {url}\n")
+                return None, url          # No subprocess — ngrok manages its own process
+            except ImportError:
+                print("[Tunnel] pyngrok not installed, falling back to SSH tunnels.")
+            except Exception as e:
+                print(f"[Tunnel] ngrok failed: {e} — falling back to SSH.")
+
         CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
-        
-        # 1. Attempt serveo.net tunnel first
+
+        # ── 2. Fallback: serveo.net SSH ────────────────────────────────────────
         print("[Tunnel] Attempting serveo.net tunnel...")
         process = subprocess.Popen(
-            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-R", f"80:127.0.0.1:{port}", "serveo.net"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            creationflags=CREATE_NO_WINDOW
+            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+             "-R", f"80:127.0.0.1:{port}", "serveo.net"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, creationflags=CREATE_NO_WINDOW
         )
-        
+
         url = None
         lines_read = []
         for _ in range(30):
@@ -1134,46 +1184,38 @@ def start_public_tunnel(port=5000):
             if match:
                 url = match.group(1)
                 break
-                
+
         if url:
-            print(f"[Tunnel] Serveo tunnel connected: {url}")
-            # Start background thread to drain stdout
+            print(f"[Tunnel] Serveo connected: {url}")
             import threading
-            def drain_stdout():
+            def drain_serveo():
                 try:
-                    with open(log_path, "a", encoding="utf-8") as log_file:
+                    with open(log_path, "a", encoding="utf-8") as lf:
                         import datetime
-                        log_file.write(f"\n--- Tunnel Started at {datetime.datetime.now()} ---\n")
-                        log_file.write(f"Assigned URL: {url}\n")
-                        for l in lines_read:
-                            log_file.write(f"[SSH Init] {l}")
+                        lf.write(f"\n--- Serveo Tunnel {datetime.datetime.now()} ---\n")
+                        lf.write(f"URL: {url}\n")
+                        for l in lines_read: lf.write(f"[SSH] {l}")
                         while True:
-                            line = process.stdout.readline()
-                            if not line:
-                                log_file.write("--- Tunnel Stream Closed ---\n")
-                                break
-                            log_file.write(f"[SSH] {line}")
-                            log_file.flush()
-                except Exception:
-                    pass
-            threading.Thread(target=drain_stdout, daemon=True).start()
+                            l = process.stdout.readline()
+                            if not l: break
+                            lf.write(f"[SSH] {l}"); lf.flush()
+                except Exception: pass
+            threading.Thread(target=drain_serveo, daemon=True).start()
             return process, url
-            
-        # Terminate serveo process if it failed to get URL
+
         try: process.terminate()
         except Exception: pass
-        
-        # 2. Fallback: Attempt localhost.run tunnel
-        print("[Tunnel] Serveo failed. Attempting localhost.run tunnel...")
+
+        # ── 3. Fallback: localhost.run SSH ────────────────────────────────────
+        print("[Tunnel] Serveo failed. Attempting localhost.run...")
         process = subprocess.Popen(
-            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-R", f"80:127.0.0.1:{port}", "nokey@localhost.run"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            creationflags=CREATE_NO_WINDOW
+            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+             "-R", f"80:127.0.0.1:{port}", "nokey@localhost.run"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, creationflags=CREATE_NO_WINDOW
         )
-        
+
         lines_read = []
         for _ in range(40):
             line = process.stdout.readline()
@@ -1183,48 +1225,41 @@ def start_public_tunnel(port=5000):
             if match:
                 url = match.group(1)
                 break
-                
+
         if url:
-            print(f"[Tunnel] localhost.run tunnel connected: {url}")
+            print(f"[Tunnel] localhost.run connected: {url}")
             import threading
-            def drain_stdout():
+            def drain_lhr():
                 try:
-                    with open(log_path, "a", encoding="utf-8") as log_file:
+                    with open(log_path, "a", encoding="utf-8") as lf:
                         import datetime
-                        log_file.write(f"\n--- Tunnel (localhost.run) Started at {datetime.datetime.now()} ---\n")
-                        log_file.write(f"Assigned URL: {url}\n")
-                        for l in lines_read:
-                            log_file.write(f"[SSH Init] {l}")
+                        lf.write(f"\n--- localhost.run Tunnel {datetime.datetime.now()} ---\n")
+                        lf.write(f"URL: {url}\n")
+                        for l in lines_read: lf.write(f"[SSH] {l}")
                         while True:
-                            line = process.stdout.readline()
-                            if not line:
-                                log_file.write("--- Tunnel Stream Closed ---\n")
-                                break
-                            log_file.write(f"[SSH] {line}")
-                            log_file.flush()
-                except Exception:
-                    pass
-            threading.Thread(target=drain_stdout, daemon=True).start()
+                            l = process.stdout.readline()
+                            if not l: break
+                            lf.write(f"[SSH] {l}"); lf.flush()
+                except Exception: pass
+            threading.Thread(target=drain_lhr, daemon=True).start()
             return process, url
 
-        # Log failure if both failed
         with open(err_path, "w", encoding="utf-8") as f:
-            f.write("=== All Tunnels Startup Failed ===\n")
-            f.write("Output received from localhost.run:\n")
+            f.write("=== All Tunnels Failed ===\n")
             f.write("".join(lines_read))
         try: process.terminate()
         except Exception: pass
         return None, None
-        
+
     except Exception as e:
         try:
             from config import EXECUTABLE_DIR
             err_path = os.path.join(EXECUTABLE_DIR, "tunnel_error.log")
             with open(err_path, "a", encoding="utf-8") as f:
                 f.write(f"[Tunnel Exception] {e}\n")
-        except Exception:
-            pass
+        except Exception: pass
     return None, None
+
 
 # Start server function to be called from main.py
 def start_kiosk_server(port=5000):
