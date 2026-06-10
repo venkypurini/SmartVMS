@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build
+build/
+dist/
+*.spec
+
+# Database & Credentials (SENSITIVE)
+database/*.db
+database/*.db-journal
+database/*.db-wal
+database/*.db-shm
+database/smtp_settings.json
+
+# Generated/Stored visitor assets (PRIVACY)
+visitor_images/
+qr_codes/
+reports/
+*.log
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
