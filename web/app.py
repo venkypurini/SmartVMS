@@ -1099,7 +1099,7 @@ def get_local_ip():
     return IP
 
 def start_public_tunnel(port=5000):
-    """Starts an SSH reverse tunnel to serveo.net to get a public 4G/5G accessible URL."""
+    """Starts an SSH reverse tunnel to serveo.net with fallback to localhost.run."""
     try:
         import os
         from config import EXECUTABLE_DIR
@@ -1113,6 +1113,8 @@ def start_public_tunnel(port=5000):
             
         CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
         
+        # 1. Attempt serveo.net tunnel first
+        print("[Tunnel] Attempting serveo.net tunnel...")
         process = subprocess.Popen(
             ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-R", f"80:127.0.0.1:{port}", "serveo.net"],
             stdin=subprocess.PIPE,
@@ -1122,21 +1124,20 @@ def start_public_tunnel(port=5000):
             creationflags=CREATE_NO_WINDOW
         )
         
-        # Wait up to 50 lines for the URL to appear in the output
         url = None
         lines_read = []
-        for _ in range(50):
+        for _ in range(30):
             line = process.stdout.readline()
             if not line: break
             lines_read.append(line)
-            
             match = re.search(r'(https://[a-zA-Z0-9-]+\.(serveousercontent\.com|serveo\.net))', line)
             if match:
                 url = match.group(1)
                 break
                 
         if url:
-            # Crucial: Start a background thread to continually read stdout so the buffer doesn't fill and block SSH
+            print(f"[Tunnel] Serveo tunnel connected: {url}")
+            # Start background thread to drain stdout
             import threading
             def drain_stdout():
                 try:
@@ -1153,25 +1154,68 @@ def start_public_tunnel(port=5000):
                                 break
                             log_file.write(f"[SSH] {line}")
                             log_file.flush()
-                except Exception as e:
-                    try:
-                        with open(err_path, "a", encoding="utf-8") as f:
-                            f.write(f"[Drain Error] {e}\n")
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
             threading.Thread(target=drain_stdout, daemon=True).start()
             return process, url
-        else:
-            # Log standard failure details
-            with open(err_path, "w", encoding="utf-8") as f:
-                f.write("=== Tunnel Startup Failed ===\n")
-                f.write(f"Process Poll status: {process.poll()}\n")
-                f.write("Output received:\n")
-                f.write("".join(lines_read))
-            try: process.terminate()
-            except Exception: pass
-            return None, None
             
+        # Terminate serveo process if it failed to get URL
+        try: process.terminate()
+        except Exception: pass
+        
+        # 2. Fallback: Attempt localhost.run tunnel
+        print("[Tunnel] Serveo failed. Attempting localhost.run tunnel...")
+        process = subprocess.Popen(
+            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-R", f"80:127.0.0.1:{port}", "nokey@localhost.run"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=CREATE_NO_WINDOW
+        )
+        
+        lines_read = []
+        for _ in range(40):
+            line = process.stdout.readline()
+            if not line: break
+            lines_read.append(line)
+            match = re.search(r'(https://[a-zA-Z0-9-]+\.lhr\.life)', line)
+            if match:
+                url = match.group(1)
+                break
+                
+        if url:
+            print(f"[Tunnel] localhost.run tunnel connected: {url}")
+            import threading
+            def drain_stdout():
+                try:
+                    with open(log_path, "a", encoding="utf-8") as log_file:
+                        import datetime
+                        log_file.write(f"\n--- Tunnel (localhost.run) Started at {datetime.datetime.now()} ---\n")
+                        log_file.write(f"Assigned URL: {url}\n")
+                        for l in lines_read:
+                            log_file.write(f"[SSH Init] {l}")
+                        while True:
+                            line = process.stdout.readline()
+                            if not line:
+                                log_file.write("--- Tunnel Stream Closed ---\n")
+                                break
+                            log_file.write(f"[SSH] {line}")
+                            log_file.flush()
+                except Exception:
+                    pass
+            threading.Thread(target=drain_stdout, daemon=True).start()
+            return process, url
+
+        # Log failure if both failed
+        with open(err_path, "w", encoding="utf-8") as f:
+            f.write("=== All Tunnels Startup Failed ===\n")
+            f.write("Output received from localhost.run:\n")
+            f.write("".join(lines_read))
+        try: process.terminate()
+        except Exception: pass
+        return None, None
+        
     except Exception as e:
         try:
             from config import EXECUTABLE_DIR

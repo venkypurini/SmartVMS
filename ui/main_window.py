@@ -1,5 +1,5 @@
 import os
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
                              QFrame, QLabel, QPushButton, QStackedWidget, 
                              QMessageBox, QGridLayout, QLineEdit, QComboBox, 
                              QTextEdit, QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QInputDialog, QDialog)
@@ -332,6 +332,33 @@ class MainWindow(QMainWindow):
             lbl_url.setStyleSheet("color: #2ecc71; font-weight: bold; font-size: 16px;")
             lbl_url.setAlignment(Qt.AlignCenter)
             layout.addWidget(lbl_url)
+
+            # Copy URL Button
+            copy_btn = QPushButton("📋 Copy URL Link")
+            copy_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2ecc71;
+                    color: #121214;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    margin-top: 10px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #27ae60;
+                }
+                QPushButton:active {
+                    background-color: #1e8449;
+                }
+            """)
+            url_to_copy = self.kiosk_url
+            copy_btn.clicked.connect(lambda: [
+                QApplication.clipboard().setText(url_to_copy),
+                copy_btn.setText("✔ URL Copied!")
+            ])
+            layout.addWidget(copy_btn)
             
             lbl_qr = QLabel()
             # Do NOT use SmoothTransformation! It blurs the sharp edges of the QR code and breaks scanners.
@@ -341,7 +368,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(lbl_qr)
             
             # Ensure the dialog is large enough so it doesn't clip the image
-            dlg.resize(550, 650)
+            dlg.resize(550, 700)
             dlg.exec_()
         except Exception as e:
             QMessageBox.critical(self, "QR Generation Error", f"Failed to generate QR Code. Error: {str(e)}")
@@ -388,13 +415,40 @@ class MainWindow(QMainWindow):
             lbl_url.setStyleSheet("color: #2ecc71; font-weight: bold; font-size: 16px;")
             lbl_url.setAlignment(Qt.AlignCenter)
             layout.addWidget(lbl_url)
+
+            # Copy URL Button
+            copy_btn = QPushButton("📋 Copy URL Link")
+            copy_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2ecc71;
+                    color: #121214;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    margin-top: 10px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #27ae60;
+                }
+                QPushButton:active {
+                    background-color: #1e8449;
+                }
+            """)
+            url_to_copy = admin_url
+            copy_btn.clicked.connect(lambda: [
+                QApplication.clipboard().setText(url_to_copy),
+                copy_btn.setText("✔ URL Copied!")
+            ])
+            layout.addWidget(copy_btn)
             
             lbl_qr = QLabel()
             lbl_qr.setPixmap(pixmap)
             lbl_qr.setAlignment(Qt.AlignCenter)
             layout.addWidget(lbl_qr)
             
-            dlg.resize(550, 650)
+            dlg.resize(550, 700)
             dlg.exec_()
         except Exception as e:
             QMessageBox.critical(self, "QR Generation Error", f"Failed to generate QR Code. Error: {str(e)}")

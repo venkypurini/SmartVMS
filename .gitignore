@@ -6,6 +6,7 @@ __pycache__/
 # PyInstaller / Build
 build/
 dist/
+dist_*/
 *.spec
 
 # Database & Credentials (SENSITIVE)

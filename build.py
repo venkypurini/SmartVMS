@@ -4,7 +4,7 @@ import shutil
 
 if __name__ == '__main__':
     # Clean previous builds
-    for dir_name in ['build', 'dist_new']:
+    for dir_name in ['build', 'dist_v3']:
         if os.path.exists(dir_name):
             try:
                 shutil.rmtree(dir_name, ignore_errors=True)
@@ -19,7 +19,7 @@ if __name__ == '__main__':
         '--onedir',
         '--noconfirm',
         '--clean',
-        '--distpath=dist_new',
+        '--distpath=dist_v3',
         '--add-data=database/*.sql;database',
         '--add-data=assets;assets',
         '--add-data=web/templates;web/templates',
@@ -32,9 +32,9 @@ if __name__ == '__main__':
     
     # Copy vms.db and smtp_settings.json to the new build directory
     src_db_dir = os.path.join('database')
-    dest_db_dir = os.path.join('dist_new', 'SmartVMS', 'database')
+    dest_db_dir = os.path.join('dist_v3', 'SmartVMS', 'database')
     
-    if os.path.exists(src_db_dir) and os.path.exists(os.path.join('dist_new', 'SmartVMS')):
+    if os.path.exists(src_db_dir) and os.path.exists(os.path.join('dist_v3', 'SmartVMS')):
         os.makedirs(dest_db_dir, exist_ok=True)
         for filename in ['vms.db', 'smtp_settings.json']:
             src_file = os.path.join(src_db_dir, filename)
@@ -49,9 +49,9 @@ if __name__ == '__main__':
         # Copy app_config.ini if it exists in root
         if os.path.exists('app_config.ini'):
             try:
-                shutil.copy2('app_config.ini', os.path.join('dist_new', 'SmartVMS', 'app_config.ini'))
-                print("[SUCCESS] Copied app_config.ini to dist_new/SmartVMS")
+                shutil.copy2('app_config.ini', os.path.join('dist_v3', 'SmartVMS', 'app_config.ini'))
+                print("[SUCCESS] Copied app_config.ini to dist_v3/SmartVMS")
             except Exception as e:
                 print(f"[WARNING] Failed to copy app_config.ini: {e}")
 
-    print("\n[SUCCESS] Build complete! You can find the executable in the 'dist_new' folder.")
+    print("\n[SUCCESS] Build complete! You can find the executable in the 'dist_v3' folder.")
