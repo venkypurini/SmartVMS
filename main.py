@@ -70,11 +70,32 @@ class VMSApp:
         self.login_window.show()
 
     def on_login_success(self, user_session):
-        """Callback triggered upon successful login, loading main window shell."""
+        """Callback triggered upon successful login. Displays a 3D moving frame splash screen for 3 seconds."""
         print(f"[App] Authenticated user: '{user_session['username']}' with role: '{user_session['role']}'.")
+        
+        # 1. Show the 3D rotating splash window
+        from ui.splash_3d import Splash3DWindow
+        self.splash = Splash3DWindow()
+        self.splash.show()
+        
+        # 2. Instantiate main window in background
         self.main_window = MainWindow(user_session)
         self.main_window.logout_requested.connect(self.on_logout)
-        self.main_window.show()
+        
+        # 3. Create a timer to transition after exactly 3 seconds (3000ms)
+        from PyQt5.QtCore import QTimer
+        self.splash_timer = QTimer()
+        self.splash_timer.setSingleShot(True)
+        self.splash_timer.timeout.connect(self.transition_to_main)
+        self.splash_timer.start(3000)
+
+    def transition_to_main(self):
+        """Close the 3D splash screen and display the main workspace dashboard."""
+        if hasattr(self, 'splash') and self.splash:
+            self.splash.close()
+            self.splash = None
+        if hasattr(self, 'main_window') and self.main_window:
+            self.main_window.show()
 
     def on_logout(self):
         """Callback triggered upon logout, returning operator to login dialog."""
